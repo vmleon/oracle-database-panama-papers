@@ -1,0 +1,51 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-user
+      author: panama-papers-poc
+      runOnChange: false
+      comment: Create PANAMA_PAPERS schema user
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              DECLARE
+                  v_count NUMBER;
+              BEGIN
+                  SELECT COUNT(*) INTO v_count
+                  FROM dba_users
+                  WHERE username = 'PANAMA_PAPERS';
+
+                  IF v_count = 0 THEN
+                      EXECUTE IMMEDIATE 'CREATE USER panama_papers IDENTIFIED BY "PanamaPapers2024!"';
+                  END IF;
+              END;
+
+  - changeSet:
+      id: 001-grant-privileges
+      author: panama-papers-poc
+      comment: Grant necessary privileges to PANAMA_PAPERS user
+      changes:
+        - sql:
+            sql: |
+              -- Basic privileges
+              GRANT CREATE SESSION TO panama_papers;
+              GRANT CREATE TABLE TO panama_papers;
+              GRANT CREATE VIEW TO panama_papers;
+              GRANT CREATE SEQUENCE TO panama_papers;
+              GRANT CREATE PROCEDURE TO panama_papers;
+              GRANT CREATE TYPE TO panama_papers;
+              GRANT CREATE TRIGGER TO panama_papers;
+
+              -- Quota
+              GRANT UNLIMITED TABLESPACE TO panama_papers;
+
+              -- Graph privileges (Oracle 23ai)
+              GRANT CREATE PROPERTY GRAPH TO panama_papers;
+              GRANT GRAPH_DEVELOPER TO panama_papers;
+
+              -- Text privileges
+              GRANT CTXAPP TO panama_papers;
+              GRANT EXECUTE ON CTXSYS.CTX_DDL TO panama_papers;
+
+              -- Spatial privileges
+              GRANT CREATE SEQUENCE TO panama_papers

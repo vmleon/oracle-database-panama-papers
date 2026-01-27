@@ -1,0 +1,29 @@
+databaseChangeLog:
+  - preConditions:
+      - dbms:
+          type: oracle
+
+  - include:
+      file: changelogs/001-create-schema.yaml
+      relativeToChangelogFile: true
+
+  - include:
+      file: changelogs/002-create-tables.yaml
+      relativeToChangelogFile: true
+
+  - include:
+      file: changelogs/003-create-indexes.yaml
+      relativeToChangelogFile: true
+
+  - include:
+      file: changelogs/004-create-text-indexes.yaml
+      relativeToChangelogFile: true
+
+  # Graph creation skipped - create manually after data load
+  # - include:
+  #     file: changelogs/005-create-graph.yaml
+  #     relativeToChangelogFile: true
+
+  - include:
+      file: changelogs/006-create-procedures.yaml
+      relativeToChangelogFile: true

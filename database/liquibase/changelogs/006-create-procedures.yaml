@@ -1,0 +1,114 @@
+databaseChangeLog:
+  - changeSet:
+      id: 006-batch-search-objects
+      author: panama-papers-poc
+      comment: Create objects for batch name searching
+      changes:
+        - sql:
+            splitStatements: true
+            endDelimiter: /
+            sql: |
+              -- Temporary table for search terms
+              CREATE GLOBAL TEMPORARY TABLE panama_papers.search_names (
+                  search_term VARCHAR2(200),
+                  search_id   NUMBER
+              ) ON COMMIT PRESERVE ROWS
+              /
+
+              -- Results table
+              CREATE TABLE panama_papers.batch_search_results (
+                  search_id        NUMBER,
+                  search_term      VARCHAR2(200),
+                  matched_node_id  VARCHAR2(50),
+                  matched_name     VARCHAR2(500),
+                  node_type        VARCHAR2(20),
+                  similarity_score NUMBER,
+                  search_timestamp TIMESTAMP DEFAULT SYSTIMESTAMP
+              )
+              /
+
+              -- Batch search procedure
+              CREATE OR REPLACE PROCEDURE panama_papers.batch_fuzzy_search(
+                  p_similarity_threshold NUMBER DEFAULT 70
+              ) AS
+              BEGIN
+                  DELETE FROM panama_papers.batch_search_results
+                  WHERE search_timestamp < SYSTIMESTAMP - INTERVAL '1' DAY;
+
+                  -- Search officers
+                  INSERT INTO panama_papers.batch_search_results
+                         (search_id, search_term, matched_node_id, matched_name,
+                          node_type, similarity_score)
+                  SELECT sn.search_id, sn.search_term, o.node_id, o.name,
+                         'OFFICER', SCORE(1)
+                  FROM panama_papers.search_names sn, panama_papers.officers o
+                  WHERE CONTAINS(o.name,
+                      'FUZZY(' || REPLACE(sn.search_term, '''', '''''') || ', ' ||
+                      p_similarity_threshold || ', 100, weight)', 1) > 0;
+
+                  -- Search entities
+                  INSERT INTO panama_papers.batch_search_results
+                         (search_id, search_term, matched_node_id, matched_name,
+                          node_type, similarity_score)
+                  SELECT sn.search_id, sn.search_term, e.node_id, e.name,
+                         'ENTITY', SCORE(1)
+                  FROM panama_papers.search_names sn, panama_papers.entities e
+                  WHERE CONTAINS(e.name,
+                      'FUZZY(' || REPLACE(sn.search_term, '''', '''''') || ', ' ||
+                      p_similarity_threshold || ', 100, weight)', 1) > 0;
+
+                  -- Search intermediaries
+                  INSERT INTO panama_papers.batch_search_results
+                         (search_id, search_term, matched_node_id, matched_name,
+                          node_type, similarity_score)
+                  SELECT sn.search_id, sn.search_term, i.node_id, i.name,
+                         'INTERMEDIARY', SCORE(1)
+                  FROM panama_papers.search_names sn, panama_papers.intermediaries i
+                  WHERE CONTAINS(i.name,
+                      'FUZZY(' || REPLACE(sn.search_term, '''', '''''') || ', ' ||
+                      p_similarity_threshold || ', 100, weight)', 1) > 0;
+
+                  COMMIT;
+              END;
+              /
+
+  - changeSet:
+      id: 006-utility-views
+      author: panama-papers-poc
+      comment: Create utility views for common queries
+      changes:
+        - sql:
+            sql: |
+              -- Jurisdiction summary view
+              CREATE OR REPLACE VIEW panama_papers.v_jurisdiction_summary AS
+              SELECT jurisdiction,
+                     COUNT(*) AS entity_count,
+                     ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) AS percentage,
+                     MIN(incorporation_date) AS earliest_incorporation,
+                     MAX(incorporation_date) AS latest_incorporation
+              FROM panama_papers.entities
+              WHERE jurisdiction IS NOT NULL
+              GROUP BY jurisdiction;
+
+              -- Officer entity count view
+              CREATE OR REPLACE VIEW panama_papers.v_officer_entity_count AS
+              SELECT o.node_id,
+                     o.name,
+                     o.countries,
+                     COUNT(DISTINCT r.node_id_end) AS entity_count
+              FROM panama_papers.officers o
+              JOIN panama_papers.relationships r ON o.node_id = r.node_id_start
+              WHERE r.rel_type LIKE '%officer%'
+              GROUP BY o.node_id, o.name, o.countries;
+
+              -- Data quality summary view
+              CREATE OR REPLACE VIEW panama_papers.v_data_summary AS
+              SELECT 'entities' AS table_name, COUNT(*) AS record_count FROM panama_papers.entities
+              UNION ALL
+              SELECT 'officers', COUNT(*) FROM panama_papers.officers
+              UNION ALL
+              SELECT 'intermediaries', COUNT(*) FROM panama_papers.intermediaries
+              UNION ALL
+              SELECT 'addresses', COUNT(*) FROM panama_papers.addresses
+              UNION ALL
+              SELECT 'relationships', COUNT(*) FROM panama_papers.relationships;

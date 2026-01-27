@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+ENV/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Liquibase
+liquibase.properties
+
+# Oracle
+*.wallet/
+.wallet/
+cwallet.sso
+ewallet.p12
+tnsnames.ora
+sqlnet.ora
+*.log
+*.trc
+
+# Project specific
+.panama_config.json
+data/*.csv
+data/*.zip
+data/*.txt
+data/GENERATED_ON_*
+!data/.gitkeep
+
+# MCP (machine-specific)
+.mcp.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Environment
+.env
+.env.local
+*.pem
+*.key

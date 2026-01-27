@@ -1,0 +1,33 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-create-property-graph
+      author: panama-papers-poc
+      comment: Create Property Graph over relational tables
+      runOnChange: true
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              CREATE PROPERTY GRAPH panama_papers.panama_graph
+                  VERTEX TABLES (
+                      panama_papers.entities
+                          KEY (node_id)
+                          PROPERTIES (node_id, name, jurisdiction, country_codes, countries,
+                                     incorporation_date, inactivation_date, status, source_id),
+                      panama_papers.officers
+                          KEY (node_id)
+                          PROPERTIES (node_id, name, country_codes, countries, source_id),
+                      panama_papers.intermediaries
+                          KEY (node_id)
+                          PROPERTIES (node_id, name, country_codes, countries, status, source_id),
+                      panama_papers.addresses
+                          KEY (node_id)
+                          PROPERTIES (node_id, address, country_codes, countries, source_id)
+                  )
+                  EDGE TABLES (
+                      panama_papers.relationships
+                          KEY (rel_id)
+                          SOURCE KEY (node_id_start) REFERENCES entities (node_id)
+                          DESTINATION KEY (node_id_end) REFERENCES entities (node_id)
+                          PROPERTIES (rel_type, source_id)
+                  )

@@ -1,0 +1,49 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-relationship-indexes
+      author: panama-papers-poc
+      comment: Create indexes for relationship traversal
+      changes:
+        - sql:
+            sql: |
+              CREATE INDEX panama_papers.idx_rel_start ON panama_papers.relationships(node_id_start);
+              CREATE INDEX panama_papers.idx_rel_end ON panama_papers.relationships(node_id_end);
+              CREATE INDEX panama_papers.idx_rel_type ON panama_papers.relationships(rel_type);
+              CREATE INDEX panama_papers.idx_rel_start_type ON panama_papers.relationships(node_id_start, rel_type);
+
+  - changeSet:
+      id: 003-entity-indexes
+      author: panama-papers-poc
+      comment: Create indexes on entity columns
+      changes:
+        - sql:
+            sql: |
+              CREATE INDEX panama_papers.idx_entities_jurisdiction ON panama_papers.entities(jurisdiction);
+              CREATE INDEX panama_papers.idx_entities_source ON panama_papers.entities(source_id);
+              CREATE INDEX panama_papers.idx_entities_inc_date ON panama_papers.entities(incorporation_date);
+
+  - changeSet:
+      id: 003-officer-indexes
+      author: panama-papers-poc
+      comment: Create indexes on officer columns
+      changes:
+        - sql:
+            sql: |
+              CREATE INDEX panama_papers.idx_officers_countries ON panama_papers.officers(countries);
+              CREATE INDEX panama_papers.idx_officers_source ON panama_papers.officers(source_id);
+
+  - changeSet:
+      id: 003-vector-indexes
+      author: panama-papers-poc
+      comment: Create vector indexes for similarity search
+      changes:
+        - sql:
+            sql: |
+              CREATE VECTOR INDEX panama_papers.idx_entities_vec ON panama_papers.entities(name_embedding)
+                  ORGANIZATION NEIGHBOR PARTITIONS WITH DISTANCE COSINE;
+
+              CREATE VECTOR INDEX panama_papers.idx_officers_vec ON panama_papers.officers(name_embedding)
+                  ORGANIZATION NEIGHBOR PARTITIONS WITH DISTANCE COSINE;
+
+              CREATE VECTOR INDEX panama_papers.idx_intermediaries_vec ON panama_papers.intermediaries(name_embedding)
+                  ORGANIZATION NEIGHBOR PARTITIONS WITH DISTANCE COSINE

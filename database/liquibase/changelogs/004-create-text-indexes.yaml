@@ -1,0 +1,54 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-create-text-preferences
+      author: panama-papers-poc
+      comment: Create Oracle Text lexer and wordlist preferences
+      changes:
+        - sql:
+            splitStatements: true
+            endDelimiter: /
+            sql: |
+              BEGIN
+                  -- Create lexer for case-insensitive matching
+                  CTX_DDL.CREATE_PREFERENCE('panama_papers.PANAMA_LEXER', 'BASIC_LEXER');
+                  CTX_DDL.SET_ATTRIBUTE('panama_papers.PANAMA_LEXER', 'mixed_case', 'NO');
+              EXCEPTION
+                  WHEN OTHERS THEN
+                      IF SQLCODE != -20000 THEN RAISE; END IF;
+              END;
+              /
+
+              BEGIN
+                  -- Create wordlist for fuzzy and soundex matching
+                  CTX_DDL.CREATE_PREFERENCE('panama_papers.PANAMA_WORDLIST', 'BASIC_WORDLIST');
+                  CTX_DDL.SET_ATTRIBUTE('panama_papers.PANAMA_WORDLIST', 'FUZZY_MATCH', 'AUTO');
+                  CTX_DDL.SET_ATTRIBUTE('panama_papers.PANAMA_WORDLIST', 'FUZZY_SCORE', '40');
+                  CTX_DDL.SET_ATTRIBUTE('panama_papers.PANAMA_WORDLIST', 'FUZZY_NUMRESULTS', '100');
+                  CTX_DDL.SET_ATTRIBUTE('panama_papers.PANAMA_WORDLIST', 'SOUNDEX', 'ENGLISH');
+              EXCEPTION
+                  WHEN OTHERS THEN
+                      IF SQLCODE != -20000 THEN RAISE; END IF;
+              END;
+              /
+
+  - changeSet:
+      id: 004-create-text-indexes
+      author: panama-papers-poc
+      comment: Create Oracle Text indexes for fuzzy name search
+      changes:
+        - sql:
+            sql: |
+              CREATE INDEX panama_papers.idx_entities_name_text
+                  ON panama_papers.entities(name)
+                  INDEXTYPE IS CTXSYS.CONTEXT
+                  PARAMETERS ('LEXER panama_papers.PANAMA_LEXER WORDLIST panama_papers.PANAMA_WORDLIST SYNC (ON COMMIT)');
+
+              CREATE INDEX panama_papers.idx_officers_name_text
+                  ON panama_papers.officers(name)
+                  INDEXTYPE IS CTXSYS.CONTEXT
+                  PARAMETERS ('LEXER panama_papers.PANAMA_LEXER WORDLIST panama_papers.PANAMA_WORDLIST SYNC (ON COMMIT)');
+
+              CREATE INDEX panama_papers.idx_intermediaries_name_text
+                  ON panama_papers.intermediaries(name)
+                  INDEXTYPE IS CTXSYS.CONTEXT
+                  PARAMETERS ('LEXER panama_papers.PANAMA_LEXER WORDLIST panama_papers.PANAMA_WORDLIST SYNC (ON COMMIT)');

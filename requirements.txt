@@ -1,0 +1,42 @@
+# Panama Papers PoC - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Oracle Database connectivity
+oracledb>=2.0.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Vector embeddings (for entity resolution)
+sentence-transformers>=2.2.0
+torch>=2.0.0
+
+# CLI interface
+rich>=13.0.0
+click>=8.1.0
+questionary>=2.0.0
+
+# OCI SDK (for cloud setup)
+oci>=2.100.0
+
+# HTTP requests (for data download)
+requests>=2.31.0
+
+# Jupyter notebooks (optional, for exploration)
+jupyter>=1.0.0
+jupyterlab>=4.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Network visualization
+networkx>=3.0.0
+pyvis>=0.3.0
+
+# Progress bars
+tqdm>=4.65.0
+
+# Configuration management
+python-dotenv>=1.0.0
+pyyaml>=6.0.0
+jinja2>=3.1.0
