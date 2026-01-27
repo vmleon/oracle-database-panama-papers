@@ -1,0 +1,88 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+This is a Proof-of-Concept project demonstrating Oracle Database's converged architecture (Property Graph, Oracle Text, Spatial, AI Vector Search) for analyzing the ICIJ Panama Papers/Offshore Leaks dataset. The repository contains implementation guides and deployment documentation rather than executable application code.
+
+## Repository Structure
+
+- **README.md** - Navigation hub with documentation index, data model summary, and quick start guide
+- **Overview.md** - Historical context and background on the Panama Papers investigation
+- **TechnicalGuide.md** - ICIJ's technical approach, CSV data structure, graph data model (**authoritative schema reference**)
+- **Implementation.md** - Oracle Database implementation: SQL schema, Python ingestion scripts, PGQL queries, Oracle Text fuzzy search, vector embeddings, spatial queries
+- **Deployment.md** - Full deployment guide with Terraform (OCI ADB-S), Liquibase changelogs, Python CLI (`manage.py`), and MCP configuration
+
+## Document Relationships
+
+```
+README.md (entry point)
+    │
+    ├── Overview.md (background context)
+    │
+    ├── TechnicalGuide.md (data model - authoritative source)
+    │       │
+    │       └── Implementation.md (Oracle implementation - references TechnicalGuide)
+    │               │
+    │               └── Deployment.md (infrastructure - references Implementation)
+```
+
+**TechnicalGuide.md** is the authoritative source for CSV schema and relationship types. Implementation.md and Deployment.md reference it rather than duplicating schema details.
+
+## Key Technical Details
+
+### Data Model
+The ICIJ Offshore Leaks dataset uses a property graph model with four node types:
+- **entities** - Offshore companies, trusts, foundations (810K+ records)
+- **officers** - Directors, shareholders, beneficiaries (750K+ records)
+- **intermediaries** - Law firms, banks, agents (14K+ records)
+- **addresses** - Registered addresses (150K+ records)
+- **relationships** - Edges connecting nodes (3M+ records)
+
+### Oracle Features Used
+- **Property Graph** - PGQL queries over relational tables (Oracle 23ai)
+- **Oracle Text** - Fuzzy name search with `CONTAINS` and `FUZZY` operators
+- **Vector Search** - Semantic entity resolution with `VECTOR` type and cosine distance
+- **Spatial** - Geographic analysis with `SDO_GEOMETRY` and spatial indexes
+
+### Data Source
+CSV data is downloaded from: `https://offshoreleaks-data.icij.org/offshoreleaks/csv/full-oldb.LATEST.zip`
+
+## When Working on This Project
+
+This project is documentation-centric. When assisting:
+1. Reference the specific markdown file containing relevant implementation details
+2. SQL examples are in Implementation.md (schema, queries, graph definitions)
+3. Terraform/Liquibase code is in Deployment.md
+4. Python scripts (ingestion, embeddings) are embedded in Implementation.md and Deployment.md
+
+## Git Commit Guidelines
+
+- Commit messages should describe only the content changes
+- Do not mention Claude, AI, or any assistant in commit messages
+- Do not include Co-Authored-By lines referencing Claude
+
+## Cross-Reference Guide
+
+| Topic | Primary Source | Line Reference |
+|-------|----------------|----------------|
+| CSV file structure | TechnicalGuide.md | Lines 53-91 |
+| Relationship types | TechnicalGuide.md | Lines 85-91 |
+| Sample data records | TechnicalGuide.md | Lines 93-128 |
+| Data download | Implementation.md | Lines 66-84 |
+| Oracle table definitions | Implementation.md | Lines 97-189 |
+| Property Graph creation | Implementation.md | Lines 765-883 |
+| PGQL query examples | Implementation.md | Lines 885-1078 |
+| Oracle Text indexes | Implementation.md | Lines 566-623 |
+| Vector embeddings | Implementation.md | Lines 1403-1515 |
+| Terraform config | Deployment.md | Lines 845-1085 |
+| Liquibase changelogs | Deployment.md | Lines 1105-1636 |
+| manage.py CLI | Deployment.md | Lines 145-787 |
+
+## Terminology Consistency
+
+Relationship types used across documents (complete list):
+- `officer_of`, `director_of`, `shareholder_of`, `beneficiary_of`, `secretary_of`, `protector_of`
+- `nominee_director_of`, `nominee_shareholder_of`, `nominee_beneficiary_of`
+- `intermediary_of`, `registered_address`, `related_entity`
