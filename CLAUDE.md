@@ -17,7 +17,7 @@ The repository contains:
 - **Overview.md** - Historical context and background on the Panama Papers investigation
 - **TechnicalGuide.md** - ICIJ's technical approach, CSV data structure, graph data model (**authoritative schema reference**)
 - **Implementation.md** - Oracle Database implementation: SQL schema, Python ingestion scripts, PGQL queries, Oracle Text fuzzy search, vector embeddings, spatial queries
-- **Deployment.md** - Full deployment guide with Terraform (OCI ADB-S), Liquibase changelogs, Python CLI (`manage.py`), and MCP configuration
+- **Deployment.md** - Full deployment guide with Terraform (OCI ADB-S), Liquibase changelogs, Python CLI (`manage.py`), and SQLcl configuration
 
 ## Document Relationships
 

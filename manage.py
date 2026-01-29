@@ -10,8 +10,8 @@ Usage:
     ./manage.py cloud deploy     # Deploy schema via Liquibase
     ./manage.py data download    # Download ICIJ CSV files
     ./manage.py data ingest      # Load data into Oracle
-    ./manage.py mcp setup        # Configure SQLcl MCP connections
-    ./manage.py full clean       # Complete cleanup
+    ./manage.py sql setup        # Save SQLcl connection for ADB
+    ./manage.py clean            # Destroy cloud + delete local artifacts
 """
 
 import argparse
@@ -440,7 +440,6 @@ def cloud_deploy():
 
     # Check for wallet created by Terraform
     wallet_zip = WALLET_DIR / "wallet.zip"
-    wallet_password_file = WALLET_DIR / "wallet_password.txt"
 
     if not wallet_zip.exists():
         console.print("[red]Error: Wallet not found at .wallet/wallet.zip[/red]")
@@ -455,19 +454,9 @@ def cloud_deploy():
 
     console.print(f"[green]✓[/green] Wallet extracted to {WALLET_DIR}")
 
-    # Read wallet password
-    wallet_password = wallet_password_file.read_text().strip()
-
-    # Fix ojdbc.properties for Java 17+ (use JKS instead of SSO wallet)
-    ojdbc_props_path = WALLET_DIR / "ojdbc.properties"
-    ojdbc_props = f'''# Connection properties for Oracle wallet (JKS mode for Java 17+)
-javax.net.ssl.trustStore=${{TNS_ADMIN}}/truststore.jks
-javax.net.ssl.trustStorePassword={wallet_password}
-javax.net.ssl.keyStore=${{TNS_ADMIN}}/keystore.jks
-javax.net.ssl.keyStorePassword={wallet_password}
-'''
-    ojdbc_props_path.write_text(ojdbc_props)
-    console.print(f"[green]✓[/green] Updated ojdbc.properties for JKS mode")
+    # Uses OCI wallet defaults (SSO mode)
+    # Requires Oracle security JARs in Liquibase classpath:
+    #   oraclepki.jar, osdt_core.jar, osdt_cert.jar
 
     # Update TNS_ADMIN
     os.environ['TNS_ADMIN'] = str(WALLET_DIR)
@@ -512,10 +501,8 @@ liquibase.hub.mode=off
     env_save('SERVICE_NAME', service_name)
 
 
-def cloud_clean():
-    """Clean up cloud deployment artifacts."""
-    console.print("\n[bold blue]═══ Cloud Cleanup ═══[/bold blue]\n")
-
+def _delete_artifacts():
+    """Delete all local deployment artifacts without individual prompts."""
     items_to_clean = [
         (WALLET_DIR, "Wallet directory"),
         (DEPLOY_DIR / "terraform.tfvars", "Terraform variables"),
@@ -525,14 +512,18 @@ def cloud_clean():
 
     for path, description in items_to_clean:
         if path.exists():
-            if Confirm.ask(f"Delete {description} ({path})?"):
-                if path.is_dir():
-                    shutil.rmtree(path)
-                else:
-                    path.unlink()
-                console.print(f"[green]✓[/green] Deleted {description}")
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            console.print(f"[green]✓[/green] Deleted {description}")
 
-    console.print("\n[yellow]Note:[/yellow] Run 'terraform destroy' in deploy/terraform/ to remove cloud resources")
+    # Clean data directory
+    if DATA_DIR.exists():
+        shutil.rmtree(DATA_DIR)
+        DATA_DIR.mkdir()
+        (DATA_DIR / ".gitkeep").touch()
+        console.print("[green]✓[/green] Data directory cleaned")
 
 
 # ============================================================================
@@ -632,154 +623,118 @@ def data_embeddings():
 
 
 # ============================================================================
-# MCP COMMANDS
+# SQLCL CONNECTION COMMANDS
 # ============================================================================
 
-def mcp_setup():
-    """Configure SQLcl saved connections for MCP server."""
-    console.print("\n[bold blue]═══ MCP Connection Setup ═══[/bold blue]\n")
+def sql_setup():
+    """Configure SQLcl saved connection for the Autonomous Database."""
+    import tempfile
+
+    console.print("\n[bold blue]═══ SQLcl Connection Setup ═══[/bold blue]\n")
+
+    # Check SQLcl is available
+    if not shutil.which("sql"):
+        console.print("[red]Error: SQLcl (sql) not found. Please install it first.[/red]")
+        return
 
     wallet_dir = env_get('WALLET_DIR', str(WALLET_DIR))
     service_name = env_get('SERVICE_NAME', 'panamapoc_low')
+    admin_password = env_get('ADB_ADMIN_PASSWORD')
 
-    # Use default password for PANAMA_PAPERS user (created by Liquibase)
-    password = 'PanamaPapers2024!'
-    console.print("Using PANAMA_PAPERS schema with default credentials")
-
-    # Create SQLcl connection using conn command
-    # SQLcl stores connections in ~/.sqlcl/connections.xml
-
-    connection_name = "panama_papers"
-
-    console.print(f"\nSaving SQLcl connection: {connection_name}")
-
-    # Use SQLcl to save the connection
-    sqlcl_cmd = f'''
-conn -save {connection_name} -savepwd PANAMA_PAPERS/{password}@{service_name}
-exit
-'''
-
-    # Set TNS_ADMIN for wallet
-    env = os.environ.copy()
-    env['TNS_ADMIN'] = wallet_dir
-
-    process = subprocess.Popen(
-        ['sql', '/nolog'],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env=env
-    )
-    stdout, stderr = process.communicate(input=sqlcl_cmd)
-
-    if process.returncode != 0:
-        console.print(f"[red]Error saving connection: {stderr}[/red]")
+    if not wallet_dir or not Path(wallet_dir).exists():
+        console.print("[red]Error: Wallet directory not found.[/red]")
+        console.print("Run './manage.py cloud deploy' first to create the wallet.")
         return
 
-    console.print(f"[green]✓[/green] Connection '{connection_name}' saved")
+    if not admin_password:
+        console.print("[red]Error: ADB_ADMIN_PASSWORD not found in .env[/red]")
+        console.print("Run './manage.py cloud setup' first.")
+        return
 
-    # Generate .mcp.json
-    mcp_config = {
-        "mcpServers": {
-            "oracle-database": {
-                "command": "sql",
-                "args": [
-                    "-oci",
-                    "-nohistory",
-                    "-nomcp",
-                    f"{connection_name}"
-                ],
-                "env": {
-                    "TNS_ADMIN": wallet_dir
-                }
-            }
-        }
-    }
+    console.print(f"Wallet: {wallet_dir}")
+    console.print(f"Service: {service_name}")
 
-    mcp_json_path = PROJECT_ROOT / ".mcp.json"
-    with open(mcp_json_path, 'w') as f:
-        json.dump(mcp_config, f, indent=2)
+    # Create saved connection using SQLcl connection manager
+    connection_name = "panama"
+    conn_str = f"admin/{admin_password}@{service_name}?TNS_ADMIN={wallet_dir}"
 
-    console.print(f"[green]✓[/green] MCP configuration saved to {mcp_json_path}")
+    console.print(f"\nCreating saved connection: [cyan]{connection_name}[/cyan]")
 
-    console.print("\n[bold]MCP server configured![/bold]")
-    console.print("You can now use Claude Code to query the Panama Papers database.")
-    console.print("\nExample prompts:")
-    console.print('  "List the top 10 jurisdictions by entity count"')
-    console.print('  "Find officers with names similar to Putin"')
-    console.print('  "Show the graph schema for panama_graph"')
+    # Create temp SQL file to run commands
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False) as f:
+        f.write(f"connmgr delete -conn {connection_name}\n")
+        f.write(f"conn -save {connection_name} -savepwd {conn_str}\n")
+        f.write("exit\n")
+        temp_file = f.name
+
+    try:
+        env = os.environ.copy()
+        env['TERM'] = 'dumb'
+        subprocess.run(["sql", "/nolog", f"@{temp_file}"], check=False, env=env)
+        console.print(f"[green]✓[/green] Connection saved: {connection_name}")
+    finally:
+        os.unlink(temp_file)
+
+    console.print("\n[bold]SQLcl connection configured![/bold]")
+    console.print(f"\nTest with: [cyan]sql -name {connection_name}[/cyan]")
+    console.print("\nExample queries:")
+    console.print('  SELECT COUNT(*) FROM entities;')
+    console.print('  SELECT jurisdiction, COUNT(*) FROM entities GROUP BY jurisdiction;')
 
 
-def mcp_test():
-    """Test MCP connection."""
-    console.print("\n[bold blue]═══ Test MCP Connection ═══[/bold blue]\n")
+def sql_test():
+    """Test SQLcl saved connection."""
+    console.print("\n[bold blue]═══ Test SQLcl Connection ═══[/bold blue]\n")
 
-    wallet_dir = env_get('WALLET_DIR', str(WALLET_DIR))
-
-    env = os.environ.copy()
-    env['TNS_ADMIN'] = wallet_dir
-
+    connection_name = "panama"
     test_query = "SELECT COUNT(*) AS entity_count FROM entities;"
 
+    console.print(f"Testing connection: [cyan]{connection_name}[/cyan]")
+
     result = subprocess.run(
-        ['sql', '-S', 'panama_papers', '-c', test_query],
+        ['sql', '-S', '-name', connection_name, '-c', test_query],
         capture_output=True,
-        text=True,
-        env=env
+        text=True
     )
 
     if result.returncode == 0:
         console.print("[green]✓[/green] Connection successful!")
         console.print(f"\nQuery result:\n{result.stdout}")
     else:
-        console.print(f"[red]Connection failed: {result.stderr}[/red]")
+        console.print(f"[red]Connection failed: {result.stderr or result.stdout}[/red]")
+        console.print("\nRun './manage.py sql setup' to create the saved connection.")
 
 
 # ============================================================================
-# FULL WORKFLOW COMMANDS
+# CLEANUP COMMAND
 # ============================================================================
 
-def full_setup():
-    """Complete end-to-end setup."""
-    console.print("\n[bold blue]═══ Full Setup Workflow ═══[/bold blue]\n")
-
-    steps = [
-        ("Cloud Configuration", cloud_setup),
-        ("Data Download", data_download),
-    ]
-
-    for step_name, step_func in steps:
-        console.print(f"\n[bold]Step: {step_name}[/bold]")
-        step_func()
-
-    console.print("\n[bold green]═══ Setup Phase Complete ═══[/bold green]")
-    console.print("\n[bold]Next steps:[/bold]")
-    console.print("  1. cd deploy/terraform && terraform init && terraform apply")
-    console.print("  2. ./manage.py cloud deploy")
-    console.print("  3. ./manage.py data ingest")
-    console.print("  4. ./manage.py data embeddings  (optional)")
-    console.print("  5. ./manage.py mcp setup")
-
-
-def full_clean():
+def clean():
     """Complete cleanup of all resources."""
     console.print("\n[bold blue]═══ Full Cleanup ═══[/bold blue]\n")
 
-    if not Confirm.ask("[red]This will delete ALL local artifacts. Continue?[/red]"):
-        return
+    # Check if Terraform state exists
+    tfstate_path = DEPLOY_DIR / "terraform.tfstate"
+    if tfstate_path.exists():
+        console.print("[yellow]Terraform state found - cloud resources may exist.[/yellow]\n")
+        if Confirm.ask("Run 'terraform destroy' to remove cloud resources?", default=True):
+            console.print("\nRunning terraform destroy...\n")
+            try:
+                run_command(["terraform", "destroy", "-auto-approve"], cwd=DEPLOY_DIR)
+                console.print("\n[green]✓[/green] Cloud resources destroyed")
+            except Exception as e:
+                console.print(f"\n[red]Terraform destroy failed: {e}[/red]")
+                if not Confirm.ask("Continue with local cleanup anyway?", default=False):
+                    return
+    else:
+        console.print("[dim]No Terraform state found - skipping cloud resource cleanup.[/dim]\n")
 
-    cloud_clean()
-
-    # Clean data directory
-    if DATA_DIR.exists() and Confirm.ask("Delete downloaded data?"):
-        shutil.rmtree(DATA_DIR)
-        DATA_DIR.mkdir()
-        (DATA_DIR / ".gitkeep").touch()
-        console.print("[green]✓[/green] Data directory cleaned")
-
-    console.print("\n[bold green]═══ Cleanup Complete ═══[/bold green]")
-    console.print("\n[yellow]Don't forget to run 'terraform destroy' if needed[/yellow]")
+    # Single confirmation for all local artifacts
+    if Confirm.ask("Delete all local artifacts (wallet, configs, data)?", default=True):
+        _delete_artifacts()
+        console.print("\n[bold green]═══ Cleanup Complete ═══[/bold green]")
+    else:
+        console.print("\n[yellow]Cleanup cancelled.[/yellow]")
 
 
 # ============================================================================
@@ -796,8 +751,8 @@ Examples:
   ./manage.py cloud deploy     Deploy database schema
   ./manage.py data download    Download ICIJ data
   ./manage.py data ingest      Load data into Oracle
-  ./manage.py mcp setup        Configure MCP connections
-  ./manage.py full clean       Complete cleanup
+  ./manage.py sql setup        Save SQLcl connection for ADB
+  ./manage.py clean            Destroy cloud + delete local artifacts
         """
     )
 
@@ -808,7 +763,6 @@ Examples:
     cloud_sub = cloud_parser.add_subparsers(dest='subcommand')
     cloud_sub.add_parser('setup', help='Interactive OCI configuration')
     cloud_sub.add_parser('deploy', help='Deploy schema via Liquibase')
-    cloud_sub.add_parser('clean', help='Clean cloud artifacts')
 
     # Data commands
     data_parser = subparsers.add_parser('data', help='Data management commands')
@@ -817,17 +771,14 @@ Examples:
     data_sub.add_parser('ingest', help='Load data into Oracle')
     data_sub.add_parser('embeddings', help='Generate vector embeddings')
 
-    # MCP commands
-    mcp_parser = subparsers.add_parser('mcp', help='MCP configuration commands')
-    mcp_sub = mcp_parser.add_subparsers(dest='subcommand')
-    mcp_sub.add_parser('setup', help='Configure SQLcl connections')
-    mcp_sub.add_parser('test', help='Test MCP connection')
+    # SQLcl commands
+    sql_parser = subparsers.add_parser('sql', help='SQLcl connection commands')
+    sql_sub = sql_parser.add_subparsers(dest='subcommand')
+    sql_sub.add_parser('setup', help='Save SQLcl connection for ADB')
+    sql_sub.add_parser('test', help='Test SQLcl saved connection')
 
-    # Full workflow commands
-    full_parser = subparsers.add_parser('full', help='Full workflow commands')
-    full_sub = full_parser.add_subparsers(dest='subcommand')
-    full_sub.add_parser('setup', help='Complete setup workflow')
-    full_sub.add_parser('clean', help='Complete cleanup')
+    # Clean command (top-level)
+    subparsers.add_parser('clean', help='Destroy cloud resources and delete all local artifacts')
 
     args = parser.parse_args()
 
@@ -835,19 +786,18 @@ Examples:
     commands = {
         ('cloud', 'setup'): cloud_setup,
         ('cloud', 'deploy'): cloud_deploy,
-        ('cloud', 'clean'): cloud_clean,
         ('data', 'download'): data_download,
         ('data', 'ingest'): data_ingest,
         ('data', 'embeddings'): data_embeddings,
-        ('mcp', 'setup'): mcp_setup,
-        ('mcp', 'test'): mcp_test,
-        ('full', 'setup'): full_setup,
-        ('full', 'clean'): full_clean,
+        ('sql', 'setup'): sql_setup,
+        ('sql', 'test'): sql_test,
     }
 
-    key = (args.command, args.subcommand)
-    if key in commands:
-        commands[key]()
+    # Handle top-level clean command
+    if args.command == 'clean':
+        clean()
+    elif (args.command, getattr(args, 'subcommand', None)) in commands:
+        commands[(args.command, args.subcommand)]()
     else:
         parser.print_help()
 

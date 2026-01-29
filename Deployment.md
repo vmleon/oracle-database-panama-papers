@@ -15,7 +15,7 @@ This guide provides complete deployment instructions for the Panama Papers Proof
 3. [Component Reference](#component-reference)
 4. [Prerequisites](#prerequisites)
 5. [Step-by-Step Deployment](#step-by-step-deployment)
-6. [MCP Configuration](#mcp-configuration)
+6. [SQLcl Saved Connection](#sqlcl-saved-connection)
 7. [Cleanup Procedures](#cleanup-procedures)
 
 ---
@@ -26,8 +26,8 @@ This guide provides complete deployment instructions for the Panama Papers Proof
 flowchart TB
     subgraph Dev["Developer Environment"]
         CC[Claude Code<br/>AI Assistant]
-        MCP[SQLcl MCP Server<br/>Protocol Bridge]
-        Tools[manage.py | Terraform | Liquibase | SQLcl]
+        SQLcl[SQLcl<br/>Database CLI]
+        Tools[manage.py | Terraform | Liquibase]
     end
 
     subgraph OCI["Oracle Cloud Infrastructure"]
@@ -42,8 +42,8 @@ flowchart TB
         end
     end
 
-    CC <-->|MCP Protocol| MCP
-    MCP <-->|SQL*Net / mTLS| ADB
+    CC -->|Bash Tool| SQLcl
+    SQLcl <-->|SQL*Net / mTLS| ADB
     Tools -->|Provision & Deploy| OCI
 ```
 
@@ -55,7 +55,7 @@ flowchart TB
 panama-papers-poc/
 ├── manage.py                    # CLI orchestration tool
 ├── requirements.txt             # Python dependencies
-├── .mcp.json                    # MCP server configuration for Claude
+├── .mcp.json                    # (Not used - SQLcl is not an MCP server)
 ├── README.md                    # Quick start guide
 │
 ├── deploy/
@@ -129,8 +129,8 @@ The script provides a unified interface for infrastructure provisioning, schema 
 | `data`  | `download`   | Downloads ICIJ CSV files                                  |
 | `data`  | `ingest`     | Loads CSV data into Oracle tables                         |
 | `data`  | `embeddings` | Generates vector embeddings for names                     |
-| `mcp`   | `setup`      | Configures SQLcl saved connections for MCP                |
-| `mcp`   | `test`       | Validates MCP connection                                  |
+| `sql`   | `setup`      | Saves SQLcl connection for ADB                            |
+| `sql`   | `test`       | Tests SQLcl saved connection                              |
 | `full`  | `setup`      | Complete end-to-end deployment                            |
 | `full`  | `clean`      | Complete teardown                                         |
 
@@ -142,9 +142,9 @@ flowchart LR
     D[data download] --> E[data ingest]
     E --> F[data embeddings]
 
-    C --> G[mcp setup]
+    C --> G[sql setup]
     E --> G
-    G --> H[mcp test]
+    G --> H[sql test]
 
     style A fill:#e1f5fe
     style D fill:#e1f5fe
@@ -166,7 +166,7 @@ Usage:
     ./manage.py cloud deploy     # Deploy schema via Liquibase
     ./manage.py data download    # Download ICIJ CSV files
     ./manage.py data ingest      # Load data into Oracle
-    ./manage.py mcp setup        # Configure SQLcl MCP connections
+    ./manage.py sql setup        # Save SQLcl connection for ADB
     ./manage.py full clean       # Complete cleanup
 """
 
@@ -676,7 +676,7 @@ def full_setup():
     console.print("  2. ./manage.py cloud deploy")
     console.print("  3. ./manage.py data ingest")
     console.print("  4. ./manage.py data embeddings  (optional)")
-    console.print("  5. ./manage.py mcp setup")
+    console.print("  5. ./manage.py sql setup")
 
 
 def full_clean():
@@ -713,7 +713,7 @@ Examples:
   ./manage.py cloud deploy     Deploy database schema
   ./manage.py data download    Download ICIJ data
   ./manage.py data ingest      Load data into Oracle
-  ./manage.py mcp setup        Configure MCP connections
+  ./manage.py sql setup        Save SQLcl connection for ADB
   ./manage.py full clean       Complete cleanup
         """
     )
@@ -1063,7 +1063,7 @@ output "next_steps" {
     2. Deploy schema: ./manage.py cloud deploy
     3. Download data: ./manage.py data download
     4. Ingest data: ./manage.py data ingest
-    5. Configure MCP: ./manage.py mcp setup
+    5. Save SQLcl connection: ./manage.py sql setup
 
     Database Console: ${oci_database_autonomous_database.panama_papers_adb.service_console_url}
 
@@ -1697,29 +1697,40 @@ COMMIT;
 
 ---
 
-### 6. MCP Configuration — .mcp.json
+### 6. SQLcl Saved Connection
 
-The MCP configuration file enables Claude Code to connect to the Oracle database through the SQLcl MCP server.
+The `sql setup` command saves a connection in SQLcl's connection manager for easy database access.
 
-```json
-{
-  "mcpServers": {
-    "oracle-panama-papers": {
-      "command": "sql",
-      "args": ["-oci", "-nohistory", "-nomcp", "panama_papers"],
-      "env": {
-        "TNS_ADMIN": "${PROJECT_ROOT}/.wallet"
-      }
-    }
-  }
-}
+```bash
+./manage.py sql setup
 ```
 
-**Configuration Notes:**
+This creates a saved connection named `panama` that can be used with:
 
-The `-oci` flag enables OCI authentication mode. The `-nohistory` flag prevents command history storage. The `-nomcp` flag indicates this is an MCP server instance. The connection name `panama_papers` must match a saved SQLcl connection created by `./manage.py mcp setup`.
+```bash
+sql -name panama
+```
 
-The `TNS_ADMIN` environment variable points to the wallet directory containing `tnsnames.ora`, `sqlnet.ora`, and the wallet files for mTLS authentication.
+**How it works:**
+
+The command uses SQLcl's connection manager to store credentials securely:
+
+```sql
+connmgr delete -conn panama
+conn -save panama -savepwd admin/<password>@<service>?TNS_ADMIN=<wallet_dir>
+```
+
+**Test the connection:**
+
+```bash
+./manage.py sql test
+```
+
+Or directly:
+
+```bash
+sql -name panama -c "SELECT COUNT(*) FROM entities;"
+```
 
 ---
 
@@ -1734,7 +1745,7 @@ Before beginning deployment, ensure the following tools are installed and config
 | Python    | 3.10+   | Script execution, data processing      | `brew install python` or system package                                         |
 | Terraform | 1.5+    | Infrastructure provisioning            | `brew install terraform`                                                        |
 | OCI CLI   | 3.0+    | OCI authentication and wallet download | `brew install oci-cli`                                                          |
-| SQLcl     | 24.1+   | Database connectivity and MCP server   | [Oracle Downloads](https://www.oracle.com/tools/downloads/sqlcl-downloads.html) |
+| SQLcl     | 24.1+   | Database connectivity                  | [Oracle Downloads](https://www.oracle.com/tools/downloads/sqlcl-downloads.html) |
 | Liquibase | 4.20+   | Schema deployment                      | `brew install liquibase`                                                        |
 
 ### OCI Configuration
@@ -1781,7 +1792,7 @@ flowchart TB
         D2[cloud deploy]
         D3[data ingest]
         D4[data embeddings]
-        D5[mcp setup]
+        D5[sql setup]
     end
 
     subgraph Phase3["Phase 3: Use"]
@@ -1893,24 +1904,24 @@ This loads the CSV data into Oracle tables. Expect 30-60 minutes depending on ne
 
 This generates vector embeddings for entity resolution. This is computationally intensive and may take several hours. Skip for initial testing.
 
-**Step 2.5: Configure MCP**
+**Step 2.5: Save SQLcl Connection**
 
 ```bash
-./manage.py mcp setup
+./manage.py sql setup
 ```
 
 This:
 
 1. Creates a saved SQLcl connection
-2. Generates `.mcp.json` for Claude Code
+2. Saves SQLcl connection named `panama`
 
 **Step 2.6: Test Connection**
 
 ```bash
-./manage.py mcp test
+./manage.py sql test
 ```
 
-Verifies the MCP connection is working correctly.
+Verifies the SQLcl saved connection is working correctly.
 
 ### Phase 3: Use
 
@@ -1992,7 +2003,7 @@ export TNS_ADMIN=/path/to/panama-papers-poc/.wallet
 sql ADMIN/<password>@panamapoc_low
 ```
 
-**Issue: MCP server not starting**
+**Issue: SQLcl connection not working**
 
 Solution: Verify SQLcl connection:
 
@@ -2007,7 +2018,7 @@ SQL> SELECT 1 FROM dual;
 
 - [Oracle Autonomous Database Documentation](https://docs.oracle.com/en/cloud/paas/autonomous-database/)
 - [Oracle Property Graph Documentation](https://docs.oracle.com/en/database/oracle/property-graph/)
-- [SQLcl MCP Server Documentation](https://docs.oracle.com/en/database/oracle/sql-developer-command-line/)
+- [SQLcl Documentation](https://docs.oracle.com/en/database/oracle/sql-developer-command-line/)
 - [ICIJ Offshore Leaks Database](https://offshoreleaks.icij.org/)
 - [Terraform OCI Provider](https://registry.terraform.io/providers/oracle/oci/latest)
 - [Liquibase Documentation](https://docs.liquibase.com/)
